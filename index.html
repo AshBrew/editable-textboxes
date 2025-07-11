@@ -8,6 +8,18 @@
 </head>
 <body>
 
+  <button id="toggleBtn">▼</button>
+
+  <div id="doc-controls">
+    <div id="customDropdown" class="dropdown">
+      <button id="dropdownBtn" aria-haspopup="listbox" aria-expanded="false">select document</button>
+      <ul id="dropdownList" role="listbox" tabindex="-1" class="dropdown-list hidden"></ul>
+    </div>
+    <input type="text" id="newDocName" placeholder="new note..." />
+    <button id="createDoc">📜</button>
+    <button id="deleteDoc">🛞</button>
+  </div>
+
   <div id="resizable-box">
     <div id="editable" contenteditable="true"></div>
   </div>
