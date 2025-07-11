@@ -9,36 +9,169 @@ const firebaseConfig = {
   measurementId: "G-1XKB9SH66B"
 };
 
-// Initialize Firebase
+// ✅ Init Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// ✅ Get doc name from URL (?doc=...)
-const params = new URLSearchParams(window.location.search);
-const docId = params.get('doc') || 'default';
-
+//DOM elements
 const editable = document.getElementById('editable');
-const docRef = db.collection('notes').doc(docId);
+const newDocInput = document.getElementById('newDocName');
+const createBtn = document.getElementById('createDoc');
+const deleteBtn = document.getElementById('deleteDoc');
+const toggleBtn = document.getElementById('toggleBtn');
 
-// ✅ Load content
-docRef.get().then(doc => {
-  if (doc.exists) {
-    editable.innerHTML = doc.data().content;
+//custom dropdown elements
+const dropdownBtn = document.getElementById('dropdownBtn');
+const dropdownList = document.getElementById('dropdownList');
+
+let currentDoc = null;
+let saveTimeout = null;
+let docs = [];
+
+toggleBtn.onclick = () => {
+  var x = document.getElementById("doc-controls");
+  if (x.style.display === "none") {
+    x.style.display = "block";
+  } else {
+    x.style.display = "none";
+  }
+}
+
+// Populate the custom dropdown list with docs and select the current one
+function populateDropdown(docsList, selected) {
+  docs = docsList;
+  dropdownList.innerHTML = '';
+
+  docs.forEach(docId => {
+    const li = document.createElement('li');
+    li.textContent = docId;
+    li.setAttribute('role', 'option');
+    li.setAttribute('tabindex', '0');
+    li.setAttribute('aria-selected', docId === selected ? 'true' : 'false');
+
+    li.onclick = () => selectDoc(docId);
+    li.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectDoc(docId);
+      }
+    };
+
+    dropdownList.appendChild(li);
+  });
+
+  dropdownBtn.textContent = selected ? `${selected} ` : 'select document';
+}
+
+// Select a document, update URL, and load content
+function selectDoc(docId) {
+  if (docId === currentDoc) {
+    closeDropdown();
+    return;
+  }
+  currentDoc = docId;
+  dropdownBtn.textContent = `${docId} ▼`;
+  closeDropdown();
+
+  const url = new URL(window.location);
+  url.searchParams.set('doc', docId);
+  window.history.pushState(null, '', url);
+
+  loadDocument(docId);
+}
+
+// Close the dropdown list
+function closeDropdown() {
+  dropdownList.classList.add('hidden');
+  dropdownBtn.setAttribute('aria-expanded', 'false');
+}
+
+// Toggle dropdown open/close
+dropdownBtn.onclick = () => {
+  const expanded = dropdownBtn.getAttribute('aria-expanded') === 'true';
+  if (expanded) {
+    closeDropdown();
+  } else {
+    dropdownList.classList.remove('hidden');
+    dropdownBtn.setAttribute('aria-expanded', 'true');
+    dropdownList.focus();
+  }
+};
+
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!dropdownBtn.contains(e.target) && !dropdownList.contains(e.target)) {
+    closeDropdown();
   }
 });
 
-// ✅ Save changes (debounced)
-let timeout;
-editable.addEventListener('input', () => {
-  clearTimeout(timeout);
-  timeout = setTimeout(() => {
-    docRef.set({ content: editable.innerHTML });
-  }, 500);
-});
+// Load the list of documents from Firestore and populate dropdown
+function loadDocumentList(selectedId) {
+  db.collection('notes').get().then(snapshot => {
+    const docIds = [];
+    snapshot.forEach(doc => docIds.push(doc.id));
+    if (!docIds.includes(selectedId) && docIds.length > 0) {
+      selectedId = docIds[0];
+    }
+    populateDropdown(docIds, selectedId);
+  });
+}
 
-// ✅ Listen for realtime updates
-docRef.onSnapshot(doc => {
-  if (!doc.metadata.hasPendingWrites) {
-    editable.innerHTML = doc.exists ? doc.data().content : "";
-  }
+// Load a document and sync content
+function loadDocument(docId) {
+  currentDoc = docId;
+  const docRef = db.collection('notes').doc(docId);
+
+  docRef.get().then(doc => {
+    editable.innerHTML = doc.exists ? doc.data().content : '';
+  });
+
+  // Save changes with debounce
+  editable.oninput = () => {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+      docRef.set({ content: editable.innerHTML });
+    }, 500);
+  };
+
+  // Real-time updates from Firestore
+  docRef.onSnapshot(doc => {
+    if (!doc.metadata.hasPendingWrites) {
+      editable.innerHTML = doc.exists ? doc.data().content : '';
+    }
+  });
+
+  loadDocumentList(docId);
+}
+
+// Create a new document via input & redirect
+createBtn.onclick = () => {
+  const newDoc = newDocInput.value.trim();
+  if (!newDoc) return;
+  newDocInput.value = '';
+  selectDoc(newDoc);
+};
+
+// Delete the current document
+deleteBtn.onclick = () => {
+  if (!currentDoc) return;
+  if (!confirm(`Delete document "${currentDoc}"? This cannot be undone.`)) return;
+
+  db.collection('notes').doc(currentDoc).delete().then(() => {
+    // After delete, reload docs and pick another or default
+    db.collection('notes').get().then(snapshot => {
+      const remaining = [];
+      snapshot.forEach(doc => remaining.push(doc.id));
+
+      const nextDoc = remaining.length > 0 ? remaining[0] : 'default';
+      selectDoc(nextDoc);
+    });
+  });
+};
+
+// Initial load on page ready
+window.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const startingDoc = params.get('doc') || 'default';
+  loadDocument(startingDoc);
 });
